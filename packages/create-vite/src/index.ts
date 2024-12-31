@@ -66,6 +66,10 @@ type FrameworkVariant = {
   customCommand?: string
 }
 
+type TailwindResponse = {
+  isTailwind: boolean
+}
+
 const FRAMEWORKS: Framework[] = [
   {
     name: 'vanilla',
@@ -300,6 +304,36 @@ const renameFiles: Record<string, string | undefined> = {
 
 const defaultTargetDir = 'vite-project'
 
+// Content for Tailwind configuration
+const tailwindConfigContent: string = `/** @type {import('tailwindcss').Config} */
+    export default {
+        content: [
+             "./index.html",
+             "./src/**/*.{js,ts,jsx,tsx}",
+          ],
+        theme: {
+              extend: {},
+          },
+       plugins: [],
+    }`
+
+const postcssConfigContent: string = `export default {
+    plugins: {
+        tailwindcss: {},
+        autoprefixer: {},
+      }
+    }`
+const tailwindAppBoilerPlate: string = `export default function App() {
+  return (
+    <h1 className="text-3xl font-bold underline">
+      Hello world!
+    </h1>
+  )
+}`
+const tailwindDirectives: string = `@tailwind base;
+@tailwind components;
+@tailwind utilities;`
+
 async function init() {
   const argTargetDir = formatTargetDir(argv._[0])
   const argTemplate = argv.template || argv.t
@@ -423,6 +457,34 @@ async function init() {
   // user choice associated with prompts
   const { framework, overwrite, packageName, variant } = result
 
+  let isTailwind: TailwindResponse | null = null
+
+  if (
+    (framework.name === 'react' || framework.display === 'React') &&
+    variant != 'custom-react-router'
+  ) {
+    try {
+      isTailwind = await prompts(
+        {
+          type: 'toggle',
+          name: 'isTailwind',
+          message: 'Do you want to use Tailwind CSS in this project?',
+          initial: false,
+          active: 'yes',
+          inactive: 'no',
+        },
+        {
+          onCancel: () => {
+            throw new Error(red('✖') + ' Operation cancelled')
+          },
+        },
+      )
+    } catch (cancelled: any) {
+      console.log(cancelled.message)
+      return
+    }
+  }
+
   const root = path.join(cwd, targetDir)
 
   if (overwrite === 'yes') {
@@ -512,6 +574,25 @@ async function init() {
   )
 
   pkg.name = packageName || getProjectName()
+
+  if (isTailwind?.isTailwind) {
+    const isTs: boolean = template.endsWith('-ts')
+    // Add tailwind boilerplate code to App
+    write(`src/App.${isTs ? 'tsx' : 'jsx'}`, tailwindAppBoilerPlate)
+    // Add the Tailwind directives to your CSS
+    write('src/index.css', tailwindDirectives)
+    // Add the Tailwind css dependencies in pakage.json
+    Object.assign(pkg.devDependencies, {
+      autoprefixer: '^10.4.20',
+      postcss: '^8.4.49',
+      tailwindcss: '^3.4.17',
+    })
+    // Add tailwind or postcss config files
+    write(`tailwind.config.${isTs ? 'ts' : 'js'}`, tailwindConfigContent)
+    write(`postcss.config.${isTs ? 'ts' : 'js'}`, postcssConfigContent)
+    // delete app.css file
+    fs.unlinkSync(path.join(root, `src`, 'App.css'))
+  }
 
   write('package.json', JSON.stringify(pkg, null, 2) + '\n')
 
